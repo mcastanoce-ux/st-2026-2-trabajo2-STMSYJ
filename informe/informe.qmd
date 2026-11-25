@@ -1,0 +1,206 @@
+---
+title: "Trabajo 2 · Equipo STMSYJ"
+subtitle: "Tres series: escala, orden de integración, identificación, estimación y validación de modelos ARIMA"
+author: "Sofía Cadavid Rueda, Mariana Castaño Celis y Sarah Catalina Criollo García"
+date: "2026-11-29"
+lang: es
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    number-sections: true
+    embed-resources: true
+    fig-width: 8
+    fig-height: 4.5
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{r,setup}
+knitr::opts_knit$set(root.dir = normalizePath(".."))
+```
+
+```{r correr}
+# Chunk de setup de informe/informe.qmd
+if (interactive() && basename(getwd()) == "informe") setwd("..")
+knitr::opts_knit$set(root.dir = normalizePath(".."))
+
+source("analisis/correr-todo.R", encoding = "UTF-8")
+R1 <- resultados[[1]]; R2 <- resultados[[2]]; R3 <- resultados[[3]]
+f2 <- function(x, d = 2) formatC(x, format = "f", digits = d, big.mark = ".", decimal.mark = ",")
+f3 <- function(x) f2(x, 3)
+tabla <- function(df, ...) knitr::kable(df, format.args = list(decimal.mark = ",", big.mark = "."), ...)
+```
+
+# Las tres series y su contexto
+
+## Ficha de cada serie
+
+```{r ficha}
+fichas <- do.call(rbind, lapply(resultados, function(r) r$ficha$tabla))
+fichas$Minimo <- f2(fichas$Minimo); fichas$Maximo <- f2(fichas$Maximo); fichas$Media <- f2(fichas$Media)
+names(fichas)[8:10] <- c("Mínimo", "Máximo", "Media")
+tabla(fichas, caption = "Ficha de las tres series, calculada con código.")
+```
+
+
+
+## Qué mide cada serie y qué rasgo pesa en la decisión
+
+**Serie 1.** Mide el inventario de estéril depositado en la escombrera norte, en millones de toneladas acumuladas al cierre del trimestre; su primera diferencia es el estéril depositado en el trimestre. Para decidir cuándo radicar la ampliación pesa el **crecimiento por período**: con `r f2(tail(R1$datos$valor, 1))` Mt al cierre de 2026-04 frente a un tope de 125 Mt, lo que importa es a qué ritmo se depositan los `r f2(125 - tail(R1$datos$valor, 1))` Mt restantes y si ese ritmo cambia, porque el trámite tarda cuatro trimestres.
+
+**Serie 2.** Mide el precio de cierre semanal de la acción, en pesos por acción. Para el calendario de venta del paquete pesan la **persistencia de los choques** y su tamaño: si los rendimientos semanales no son predecibles, el mejor pronóstico es el último precio y lo que decide entre vender de una vez o por tramos es cuánto se abre la incertidumbre en ocho semanas.
+
+**Serie 3.** Mide el costo directo medio de extraer una tonelada de mineral, en dólares por tonelada. Para fijar la ley de corte pesa el **nivel** de los próximos seis meses, y con él la persistencia de los choques: cada dólar por tonelada de error cuesta cerca de 1,1 millones de dólares al mes, en cualquiera de las dos direcciones.
+
+# Escala y estabilización de la varianza
+
+## Gráfico en el tiempo y dispersión contra nivel
+
+Para cada serie se presenta el gráfico en el tiempo y el gráfico, en escala logarítmica en los dos ejes, de la desviación estándar de la primera diferencia contra el nivel medio en bloques consecutivos de igual tamaño (`sd_nivel()`). Si la desviación es proporcional a una potencia del nivel, $\sigma_t \propto \mu_t^{\,b}$, la transformación $g(Z)=Z^{1-b}$ la estabiliza, de modo que la pendiente $b$ de la recta en escala log-log se lee como $\lambda = 1 - b$: $b \approx 0$ indica $\lambda = 1$ (no transformar) y $b \approx 1$, $\lambda = 0$ (logaritmo).
+
+**Por qué la desviación de la diferencia y no la de la serie.** Las tres series no son estacionarias en media. Dentro de un bloque, la desviación estándar de $Z_t$ mide sobre todo cuánto se desplazó el nivel durante el bloque (la tendencia o la deriva local), no el tamaño de los choques; crece con la longitud del bloque y con la pendiente local aunque la varianza de los choques sea constante. La primera diferencia quita el nivel local y deja la variación de período a período, que es la dispersión que la transformación debe estabilizar. En la serie 1 esto es evidente: la desviación de $Z_t$ en un bloque de 8 trimestres está dominada por el crecimiento acumulado de cerca de 8 Mt en el bloque, mientras que la de $\nabla Z_t$ es de unas centésimas de Mt.
+
+El tamaño de bloque se fijó en 8 trimestres (2 años, 12 bloques) para la serie 1, 10 semanas (20 bloques) para la serie 2 y 12 meses (1 año, 12 bloques) para la serie 3: lo bastante largo para estimar una desviación con al menos 7 diferencias y lo bastante corto para tener 12 bloques o más. Como la pendiente depende del bloque, se reporta su sensibilidad.
+
+### Serie 1
+
+```{r s1-tiempo, fig.cap = sprintf("Serie 1, estéril acumulado en la escombrera norte. T = %d observaciones trimestrales.", nrow(R1$datos))}
+graficar_serie(R1$datos)
+```
+
+
+
+```{r s1-sd, fig.width = 7, fig.height = 5, fig.cap = sprintf("Serie 1: DE de la primera diferencia contra nivel medio, %d bloques de %d trimestres. T = %d.", R1$sd_nivel$n_bloques, R1$sd_nivel$k, nrow(R1$datos))}
+graficar_sd_nivel(R1$sd_nivel, R1$meta)
+```
+
+La pendiente estimada es `r f3(R1$sd_nivel$pendiente)` (error estándar `r f3(R1$sd_nivel$ee_pendiente)`), de modo que $\lambda \approx$ `r f2(R1$sd_nivel$lambda)`. La dispersión de lo que se deposita cada trimestre no crece con el inventario acumulado, lo cual tiene sentido físico: el estéril que se deposita depende del plan de minado, no de cuánto hay ya en la escombrera. El gráfico apunta a $\lambda = 1$.
+
+### Serie 2
+
+```{r s2-tiempo, fig.cap = sprintf("Serie 2, precio de cierre semanal de la acción. T = %d observaciones semanales.", nrow(R2$datos))}
+graficar_serie(R2$datos)
+```
+
+```{r s2-sd, fig.width = 7, fig.height = 5, fig.cap = sprintf("Serie 2: DE de la primera diferencia contra nivel medio, %d bloques de %d semanas. T = %d.", R2$sd_nivel$n_bloques, R2$sd_nivel$k, nrow(R2$datos))}
+graficar_sd_nivel(R2$sd_nivel, R2$meta)
+```
+
+La pendiente es `r f3(R2$sd_nivel$pendiente)` (ee `r f3(R2$sd_nivel$ee_pendiente)`), así que $\lambda \approx$ `r f2(R2$sd_nivel$lambda)`: la variación semanal en pesos es proporcional al precio, como se espera de un precio cuyos choques son porcentuales. El gráfico apunta al logaritmo.
+
+### Serie 3
+
+```{r s3-tiempo, fig.cap = sprintf("Serie 3, costo directo de extracción por tonelada. T = %d observaciones mensuales.", nrow(R3$datos))}
+graficar_serie(R3$datos)
+```
+
+```{r s3-sd, fig.width = 7, fig.height = 5, fig.cap = sprintf("Serie 3: DE de la primera diferencia contra nivel medio, %d bloques de %d meses. T = %d.", R3$sd_nivel$n_bloques, R3$sd_nivel$k, nrow(R3$datos))}
+graficar_sd_nivel(R3$sd_nivel, R3$meta)
+```
+
+La pendiente es `r f3(R3$sd_nivel$pendiente)` con un error estándar de `r f3(R3$sd_nivel$ee_pendiente)`, mucho mayor que la propia pendiente, de modo que $\lambda \approx$ `r f2(R3$sd_nivel$lambda)` es muy impreciso. El nivel solo recorre de `r f2(min(R3$datos$valor))` a `r f2(max(R3$datos$valor))` USD/t (un cociente de `r f2(max(R3$datos$valor)/min(R3$datos$valor))`), un rango demasiado corto para que el gráfico distinga una relación entre dispersión y nivel. Este gráfico no decide la transformación de la serie 3; la decide el perfil de la sección 3.2.
+
+```{r sens-bloque}
+sb <- do.call(rbind, lapply(resultados, function(r) cbind(Serie = r$meta$serie, r$sd_nivel_sens)))
+sb$pendiente <- f3(sb$pendiente); sb$lambda <- f2(sb$lambda)
+names(sb) <- c("Serie", "k (obs. por bloque)", "Bloques", "Pendiente", "λ = 1 − pendiente")
+tabla(sb, caption = "Sensibilidad de la pendiente al tamaño del bloque.")
+```
+
+La lectura es estable en las series 1 ($\lambda$ cerca de 1) y 2 ($\lambda$ cerca de 0) y cambia de un extremo al otro en la serie 3, lo que confirma que allí el gráfico no tiene información suficiente.
+
+## Perfil de log-verosimilitud de λ
+
+Las tres series toman solo valores positivos (columna «Valores > 0» de la tabla de verificación), de modo que la familia de Box y Cox, $g_\lambda(Z) = (Z^\lambda - 1)/\lambda$ con $g_0(Z) = \ln Z$, se aplica tal cual.
+
+**Con qué modelo se calculó la verosimilitud y por qué.** La verosimilitud gaussiana exige un modelo estacionario para la serie transformada, y ninguna de las tres lo es en nivel. Se usó el mismo modelo de trabajo en las tres: la primera diferencia $W_t = (1-B)\,g_\lambda(Z_t)$, $t = 2,\dots,T$, como un AR(1) con media,
+$$W_t - \mu = \phi\,(W_{t-1}-\mu) + a_t,\qquad a_t \sim N(0,\sigma^2),$$
+estimado por máxima verosimilitud exacta. La diferencia quita la tendencia estocástica, la media $\mu$ recoge la deriva y el AR(1) absorbe la autocorrelación de corto plazo. Ese último término es necesario: en la serie 1 la diferencia es muy persistente ($\hat\phi$ = `r f3(R1$perfil$ar1$phi)`), y con una caminata aleatoria con deriva el residuo autocorrelacionado distorsiona el perfil y lleva $\hat\lambda$ a 1,32, fuera del intervalo de los demás modelos (tabla de sensibilidad abajo). El modelo de trabajo no es el modelo final; solo debe dejar residuos aproximadamente blancos para que $\lambda$ responda a la varianza y no a la estructura de la media.
+
+La log-verosimilitud de $Z_2,\dots,Z_T$ dado $Z_1$ es la de $W$ más el jacobiano de la transformación,
+$$\ell(\lambda) = \ell_W\big(\hat\phi,\hat\mu,\hat\sigma^2;\lambda\big) + (\lambda-1)\sum_{t=2}^{T}\ln Z_t,$$
+sin el cual los perfiles de distintos $\lambda$ no serían comparables, porque cada uno mide la serie en una escala diferente. El intervalo de confianza del 95 % es el de razón de verosimilitudes, $\{\lambda : \ell(\lambda) \ge \ell(\hat\lambda) - \tfrac12\chi^2_{1;0,95}\}$, con $\tfrac12\chi^2_{1;0,95} = `r f3(qchisq(0.95, 1)/2)`$.
+
+**Regla para redondear.** Dentro del intervalo se prefiere $\lambda = 1$, que deja la serie en su unidad; si 1 no está, $\lambda = 0$, cuya diferencia es un cambio porcentual; y si ninguno está, el múltiplo de 0,5 más cercano a $\hat\lambda$.
+
+```{r perfil-tabla}
+pt <- do.call(rbind, lapply(resultados, function(r) data.frame(
+  Serie = r$meta$serie, lambda_hat = f3(r$perfil$lambda_hat),
+  IC = sprintf("[%s; %s]", f3(r$perfil$ic[1]), f3(r$perfil$ic[2])),
+  phi = f3(r$perfil$ar1$phi), elegido = r$lambda$lambda, razon = r$lambda$razon)))
+names(pt) <- c("Serie", "λ̂", "IC 95 %", "φ̂ del modelo de trabajo en λ̂", "λ elegido", "Razón")
+tabla(pt, caption = "Perfil de λ con el jacobiano: máximo, intervalo y valor elegido.")
+```
+
+```{r s1-perfil, fig.width = 7, fig.height = 5, fig.cap = "Serie 1: perfil de log-verosimilitud de λ."}
+graficar_perfil(R1$perfil, R1$lambda, R1$meta)
+```
+
+**Serie 1.** $\hat\lambda$ = `r f3(R1$perfil$lambda_hat)`, con intervalo [`r f3(R1$perfil$ic[1])`; `r f3(R1$perfil$ic[2])`]. El intervalo es estrecho, contiene a 1 y excluye a 0 y a 0,5. Se elige $\lambda = 1$, de acuerdo con el gráfico de dispersión contra nivel: la serie no se transforma.
+
+```{r s2-perfil, fig.width = 7, fig.height = 5, fig.cap = "Serie 2: perfil de log-verosimilitud de λ."}
+graficar_perfil(R2$perfil, R2$lambda, R2$meta)
+```
+
+**Serie 2.** $\hat\lambda$ = `r f3(R2$perfil$lambda_hat)`, con intervalo [`r f3(R2$perfil$ic[1])`; `r f3(R2$perfil$ic[2])`]. El intervalo excluye a 1 (no transformar está claramente rechazado) y contiene a 0. Se elige $\lambda = 0$, el logaritmo, que además coincide con la pendiente cercana a 1 del gráfico de dispersión contra nivel.
+
+```{r s3-perfil, fig.width = 7, fig.height = 5, fig.cap = "Serie 3: perfil de log-verosimilitud de λ."}
+graficar_perfil(R3$perfil, R3$lambda, R3$meta)
+```
+
+**Serie 3.** $\hat\lambda$ = `r f3(R3$perfil$lambda_hat)`, con un intervalo amplio, [`r f3(R3$perfil$ic[1])`; `r f3(R3$perfil$ic[2])`], que contiene a la vez a 0, a 0,5 y a 1. Los datos no distinguen entre esas transformaciones: la log-verosimilitud en $\lambda = 1$ queda a `r f2(R3$perfil$loglik_max - loglik_lambda(R3$datos$valor, 1))` unidades del máximo, por debajo del corte de `r f3(qchisq(0.95, 1)/2)`. La razón es el rango corto del nivel: entre `r f2(min(R3$datos$valor))` y `r f2(max(R3$datos$valor))` USD/t cualquier potencia es casi lineal (la correlación entre $Z_t$ y $g_{\hat\lambda}(Z_t)$ es `r formatC(cor(R3$datos$valor, boxcox_bc(R3$datos$valor, R3$perfil$lambda_hat)), format = "f", digits = 4, decimal.mark = ",")`). Se elige $\lambda = 1$: está dentro del intervalo, es el valor más simple y deja la serie en dólares por tonelada, que es la unidad en la cual el contexto mide la pérdida (cerca de 1,1 millones de dólares al mes por cada dólar de error). Notamos que 1 está cerca del extremo superior del intervalo; si la validación de la sección 7 mostrara residuos cuya dispersión crece con el nivel, la alternativa sería $\lambda = 0$.
+
+**Sensibilidad al modelo de trabajo.** Se repitió el perfil con otros modelos para la serie diferenciada, con `stats::arima()` y el jacobiano de las $T-d$ observaciones que entran en cada verosimilitud.
+
+```{r sens-modelo}
+sm <- do.call(rbind, lapply(resultados, function(r) cbind(Serie = r$meta$serie, r$sens_modelo)))
+sm$IC <- sprintf("[%s; %s]", f2(sm$ic_inf), f2(sm$ic_sup)); sm$lambda_hat <- f2(sm$lambda_hat)
+sm <- sm[, c("Serie", "modelo", "lambda_hat", "IC")]
+names(sm) <- c("Serie", "Modelo de trabajo", "λ̂ (rejilla de 0,02)", "IC 95 %")
+tabla(sm, caption = "λ̂ e intervalo con distintos modelos de trabajo.")
+```
+
+Con cualquier modelo que absorba la autocorrelación de la diferencia, la elección no cambia: $\lambda = 1$ en la serie 1, $\lambda = 0$ en la serie 2 y un intervalo que contiene a 1 en la serie 3. La única diferencia es la caminata aleatoria con deriva en la serie 1, que ignora la fuerte persistencia de $\nabla Z_t$ y por eso no sirve como modelo de trabajo para esa serie.
+
+**Verificación del perfil propio.** El perfil se calcula con una implementación propia en R base (`loglik_ar1_exacta()` y `perfil_lambda()`, en `R/01-transformacion.R`). En tres valores de $\lambda$ se contrasta con la log-verosimilitud que reporta `arima(diff(g), order = c(1, 0, 0), include.mean = TRUE, method = "ML")` sobre la serie transformada y diferenciada, más el mismo jacobiano:
+
+```{r verif}
+vp <- do.call(rbind, lapply(resultados, function(r) cbind(Serie = r$meta$serie, r$verif_perfil)))
+vp$propio <- f3(vp$propio); vp$arima_mas_jacobiano <- f3(vp$arima_mas_jacobiano)
+vp$diferencia <- formatC(vp$diferencia, format = "e", digits = 1)
+names(vp) <- c("Serie", "λ", "ℓ(λ) propia", "arima() + jacobiano", "Diferencia")
+tabla(vp, caption = "Contraste del perfil propio contra stats::arima().")
+```
+
+Las diferencias son del orden de $10^{-9}$ o menores: la implementación propia reproduce la verosimilitud exacta de `arima()`.
+
+## Qué representan la serie transformada y su diferencia
+
+**Serie 1 ($\lambda = 1$).** $g(Z_t) = Z_t$ es el inventario de estéril acumulado, en Mt. Su primera diferencia $\nabla Z_t$ es el estéril depositado durante el trimestre t, en Mt por trimestre (entre `r f2(min(diff(R1$datos$valor)))` y `r f2(max(diff(R1$datos$valor)))`, `r f2(mean(tail(diff(R1$datos$valor), 8)))` en promedio en los últimos dos años). Si la serie necesitara una segunda diferencia, $\nabla^2 Z_t$ sería el cambio en el ritmo de depósito de un trimestre al siguiente.
+
+**Serie 2 ($\lambda = 0$).** $g(Z_t) = \ln Z_t$ es el logaritmo del precio. Su diferencia $\nabla \ln Z_t = \ln(Z_t/Z_{t-1})$ es el rendimiento logarítmico semanal, y $100\,\nabla \ln Z_t$ aproxima la variación porcentual del precio en la semana, $100\,(Z_t - Z_{t-1})/Z_{t-1}$, con buena precisión cuando la variación es pequeña. En la muestra, el rendimiento semanal medio es `r f2(mean(100*diff(log(R2$datos$valor))))` % y su desviación estándar `r f2(sd(100*diff(log(R2$datos$valor))))` %. En esta escala, un choque mueve el precio en un porcentaje, no en un número fijo de pesos, que es lo que muestra el gráfico de dispersión contra nivel.
+
+**Serie 3 ($\lambda = 1$).** $g(Z_t) = Z_t$ es el costo directo por tonelada, en USD/t. Su diferencia $\nabla Z_t$ es el cambio del costo de un mes al siguiente, en USD/t por mes; por la regla del contexto, un cambio de un dólar no anticipado equivale a cerca de 1,1 millones de dólares al mes de mineral mal clasificado.
+
+```{r g-para-seccion4}
+# g(Z_t) de cada serie, que pasa a la sección 4: resultados[[i]]$g
+```
+
+# Orden de integración
+
+*Pendiente: Persona 2. Se trabaja sobre `resultados[[i]]$g`, la serie transformada elegida en la sección 3.*
+
+# Identificación
+
+*Pendiente: Persona 2.*
+
+# Estimación y selección
+
+*Pendiente: Persona 3.*
+
+# Validación del modelo
+
+*Pendiente: Persona 3.*
