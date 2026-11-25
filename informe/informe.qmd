@@ -33,6 +33,9 @@ f2 <- function(x, d = 2) formatC(x, format = "f", digits = d, big.mark = ".", de
 f3 <- function(x) f2(x, 3)
 tabla <- function(df, ...) knitr::kable(df, format.args = list(decimal.mark = ",", big.mark = "."), ...)
 ```
+# Estructura, README, herramientas y Git
+ 
+La estructura del repositorio, los paquetes, los comandos para correrlo, la tabla de herramientas y la declaración de uso de IA están en `README.md`. El código de cada sección está en `R/` (un archivo por etapa, sin objetos globales) y `analisis/correr-todo.R` lo corre de principio a fin desde la raíz. La salida de `sessionInfo()` queda en `sesion-info.txt`.
 
 # Las tres series y su contexto
 
