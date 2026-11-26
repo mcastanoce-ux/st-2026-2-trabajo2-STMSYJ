@@ -6,9 +6,8 @@ Matrix products: default
 
 
 locale:
-[1] LC_COLLATE=Spanish_Colombia.utf8  LC_CTYPE=Spanish_Colombia.utf8   
-[3] LC_MONETARY=Spanish_Colombia.utf8 LC_NUMERIC=C                     
-[5] LC_TIME=Spanish_Colombia.utf8    
+[1] LC_COLLATE=Spanish_Colombia.utf8  LC_CTYPE=Spanish_Colombia.utf8    LC_MONETARY=Spanish_Colombia.utf8
+[4] LC_NUMERIC=C                      LC_TIME=Spanish_Colombia.utf8    
 
 time zone: America/Bogota
 tzcode source: internal
@@ -17,7 +16,7 @@ attached base packages:
 [1] stats     graphics  grDevices utils     datasets  methods   base     
 
 loaded via a namespace (and not attached):
- [1] htmlwidgets_1.6.4 compiler_4.3.2    fastmap_1.1.1     cli_3.6.4        
- [5] tools_4.3.2       htmltools_0.5.7   otel_0.2.0        rstudioapi_0.15.0
- [9] yaml_2.3.10       rmarkdown_2.32    knitr_1.52        jsonlite_2.0.0   
-[13] xfun_0.52         digest_0.6.33     rlang_1.1.5       evaluate_1.0.5   
+ [1] Matrix_1.6-1.1    xfun_0.52         mgcv_1.9-0        lattice_0.21-9    urca_1.3-4        TSA_1.3.1        
+ [7] leaps_3.2         splines_4.3.2     knitr_1.52        cli_3.6.4         grid_4.3.2        compiler_4.3.2   
+[13] rstudioapi_0.15.0 tools_4.3.2       nlme_3.1-163      evaluate_1.0.5    locfit_1.5-9.12   otel_0.2.0       
+[19] rlang_1.1.5      

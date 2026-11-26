@@ -15,6 +15,11 @@ dir.create("figs", showWarnings = FALSE)
 k_bloque <- c(8, 10, 12)
 k_sensibilidad <- list(c(6, 8, 12), c(8, 10, 20), c(8, 12, 18))
 
+tipos_df <- list(c("trend", "drift", "none"), c("trend", "drift", "none"),
+                 c("trend", "drift", "none"))
+etiquetas_g <- c("Z", "ln Z", "Z")
+unidades_g <- c("Mt", "ln(COP)", "USD/t")
+
 resultados <- vector("list", 3)
 
 for (i in 1:3) {
@@ -51,6 +56,32 @@ for (i in 1:3) {
   guardar_png(paste0(pref, "tiempo.png"), graficar_serie(x))
   guardar_png(paste0(pref, "sd-nivel.png"), graficar_sd_nivel(r$sd_nivel, meta), 7, 5)
   guardar_png(paste0(pref, "perfil-lambda.png"), graficar_perfil(r$perfil, r$lambda, meta), 7, 5)
+  
+  g <- r$g
+  r$tabla_dif <- tabla_diferencias(g, dmax = 3)
+  r$df <- estrategia_df(g, tipos_df[[i]], criterio = "BIC")
+  r$df_tabla <- tabla_df(r$df)
+  r$df_sens <- sensibilidad_df(g)
+  r$df_verif <- do.call(rbind, lapply(r$df, function(a) verificar_adf(diferenciar(g, a$d), a$tipo, a$p)))
+  r$d <- r$df[[length(r$df)]]$d
+  r$W <- diferenciar(g, r$d)
+  r$K_sw <- elegir_K(r$W)
+  r$sw <- prueba_media_sw(r$W, r$K_sw)
+  r$sw_sens <- sensibilidad_sw(r$W)
+  r$constante <- r$sw$rechaza
+  guardar_png(paste0(pref, "diferencias.png"),
+              graficar_diferencias(x$fecha, g, meta, etiquetas_g[i], unidades_g[i]), 8, 7)
+  guardar_png(paste0(pref, "acf-diferencias.png"),
+              graficar_acf_diferencias(g, meta, etiquetas_g[i]), 10, 3.8)
+  
+  r$m <- elegir_m(length(r$W))
+  r$fm <- funciones_muestrales(r$W, r$m)
+  r$eacf <- eacf_propia(r$W, ar.max = 7, ma.max = 13)
+  r$eacf_verif <- verificar_eacf(r$W, ar.max = 7, ma.max = 13)
+  r$eacf_vertices <- vertices_eacf(r$eacf$simbolo)
+  etiqueta_w <- paste0(c("", "\u2207", "\u2207\u00b2")[r$d + 1], etiquetas_g[i])
+  r$etiqueta_w <- etiqueta_w
+  guardar_png(paste0(pref, "acf-pacf-W.png"), graficar_acf_pacf(r$W, r$m, meta, etiqueta_w), 10, 4.2)
   
   
   resultados[[i]] <- r
