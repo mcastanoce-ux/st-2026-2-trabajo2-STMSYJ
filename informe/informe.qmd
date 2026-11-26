@@ -22,7 +22,7 @@ execute:
 knitr::opts_knit$set(root.dir = normalizePath(".."))
 ```
 
-```{r correr}
+```{r correr, results = "hide"}
 # Chunk de setup de informe/informe.qmd
 if (interactive() && basename(getwd()) == "informe") setwd("..")
 knitr::opts_knit$set(root.dir = normalizePath(".."))
@@ -188,17 +188,342 @@ Las diferencias son del orden de $10^{-9}$ o menores: la implementación propia 
 
 **Serie 3 ($\lambda = 1$).** $g(Z_t) = Z_t$ es el costo directo por tonelada, en USD/t. Su diferencia $\nabla Z_t$ es el cambio del costo de un mes al siguiente, en USD/t por mes; por la regla del contexto, un cambio de un dólar no anticipado equivale a cerca de 1,1 millones de dólares al mes de mineral mal clasificado.
 
-```{r g-para-seccion4}
+```{r}
 # g(Z_t) de cada serie, que pasa a la sección 4: resultados[[i]]$g
 ```
 
 # Orden de integración
 
-*Pendiente: Persona 2. Se trabaja sobre `resultados[[i]]$g`, la serie transformada elegida en la sección 3.*
+Todo el trabajo de esta sección se hace sobre la serie transformada elegida en la sección 3: $g(Z_t) = Z_t$ en la serie 1, $\ln Z_t$ en la serie 2 y $Z_t$ en la serie 3. El código está en `R/02-integracion.R`.
+
+```{r s4-aux}
+fp <- function(p) ifelse(p < 1e-4, formatC(p, format = "e", digits = 1), formatC(p, format = "f", digits = 4, decimal.mark = ","))
+gnom <- c("Z_t", "\\ln Z_t", "Z_t")
+```
+
+## Varianza, r₁ y ACF de las diferencias
+
+```{r s4a-tabla}
+td <- do.call(rbind, lapply(resultados, function(r) {
+  t <- r$tabla_dif
+  data.frame(Serie = r$meta$serie,
+             Serie_dif = c("g", "∇g", "∇²g", "∇³g")[t$d + 1], n = t$n,
+             Varianza = formatC(t$varianza, format = "g", digits = 4, decimal.mark = ","),
+             r1 = f3(t$r1), r2 = f3(t$r2),
+             Minima = ifelse(t$varianza == min(t$varianza), "← mínima", ""))
+}))
+names(td) <- c("Serie", "Diferencia", "n", "Varianza muestral", "r₁", "r₂", "")
+tabla(td, caption = "Varianza muestral y autocorrelaciones de g(Z_t) y de sus diferencias. ∇³g se incluye solo para mostrar que una diferencia más ya es excesiva.")
+```
+
+```{r s4a-acf1, fig.width = 10, fig.height = 3.8, fig.cap = "Serie 1: ACF muestral de Z, ∇Z y ∇²Z."}
+graficar_acf_diferencias(R1$g, R1$meta, "Z")
+```
+
+```{r s4a-acf2, fig.width = 10, fig.height = 3.8, fig.cap = "Serie 2: ACF muestral de ln Z, ∇ln Z y ∇²ln Z."}
+graficar_acf_diferencias(R2$g, R2$meta, "ln Z")
+```
+
+```{r s4a-acf3, fig.width = 10, fig.height = 3.8, fig.cap = "Serie 3: ACF muestral de Z, ∇Z y ∇²Z."}
+graficar_acf_diferencias(R3$g, R3$meta, "Z")
+```
+
+Las dos piezas se leen con dos reglas del curso. La primera es la de la **varianza mínima**: diferenciar una serie no estacionaria reduce su varianza, y diferenciar una que ya es estacionaria la aumenta, porque si $W_t$ es estacionaria, $\operatorname{Var}(\nabla W_t) = 2\gamma_0(1-\rho_1)$, que supera $\gamma_0$ siempre que $\rho_1 < 1/2$. La segunda es la **forma de la ACF**: la de una serie no estacionaria arranca cerca de 1 y decae lento y casi en línea recta, mientras que la de una serie sobrediferenciada tiene un $r_1$ negativo cercano a $-0{,}5$, la huella de la raíz unitaria que una diferencia de más introduce en la parte MA.
+
+**Serie 1.** La ACF de $Z_t$ y la de $\nabla Z_t$ decaen igual de lento (r₁ = `r f3(R1$tabla_dif$r1[1])` y `r f3(R1$tabla_dif$r1[2])`): el estéril depositado por trimestre tampoco es estacionario. La de $\nabla^2 Z_t$ se corta tras el rezago 1 (r₁ = `r f3(R1$tabla_dif$r1[3])`). La varianza cae de `r formatC(R1$tabla_dif$varianza[2], format = "g", digits = 4, decimal.mark = ",")` a `r formatC(R1$tabla_dif$varianza[3], format = "g", digits = 4, decimal.mark = ",")` con la segunda diferencia y sube a `r formatC(R1$tabla_dif$varianza[4], format = "g", digits = 4, decimal.mark = ",")` con la tercera. Las dos reglas sugieren **d = 2**. La segunda diferencia no es excesiva: la varianza es mínima en d = 2, y el r₁ de $\nabla^2 Z_t$ es positivo, no cercano a $-0{,}5$.
+
+**Serie 2.** La ACF de $\ln Z_t$ decae lento desde r₁ = `r f3(R2$tabla_dif$r1[1])`. La de $\nabla \ln Z_t$ no tiene ningún valor importante (r₁ = `r f3(R2$tabla_dif$r1[2])`), y la varianza es mínima en d = 1. Con una diferencia más, la varianza casi se duplica (de `r formatC(R2$tabla_dif$varianza[2], format = "g", digits = 4, decimal.mark = ",")` a `r formatC(R2$tabla_dif$varianza[3], format = "g", digits = 4, decimal.mark = ",")`) y r₁ cae a `r f3(R2$tabla_dif$r1[3])`, la señal típica de sobrediferenciación. Las dos reglas sugieren **d = 1**, y una sola diferencia no es excesiva.
+
+**Serie 3.** La ACF de $Z_t$ decae lento desde r₁ = `r f3(R3$tabla_dif$r1[1])`, y la de $\nabla Z_t$ tiene valores de corto plazo y se apaga. La varianza es mínima en d = 1 (`r formatC(R3$tabla_dif$varianza[2], format = "g", digits = 4, decimal.mark = ",")`). La segunda diferencia la aumenta a `r formatC(R3$tabla_dif$varianza[3], format = "g", digits = 4, decimal.mark = ",")` y vuelve negativo a r₁ (`r f3(R3$tabla_dif$r1[3])`). Las reglas sugieren **d = 1**. La diferencia no es excesiva: el r₁ de $\nabla Z_t$ es `r f3(R3$tabla_dif$r1[2])`, lejos de $-0{,}5$.
+
+## Pruebas de Dickey y Fuller aumentadas
+
+**Implementación.** La regresión de Dickey y Fuller aumentada,
+$$\nabla y_t = \beta_0 + \beta_1 t + \gamma\, y_{t-1} + \sum_{j=1}^{p}\delta_j \nabla y_{t-j} + e_t,$$
+la estima el equipo en R base por mínimos cuadrados (`adf_propia()`). $\beta_0$ y $\beta_1 t$ entran o no según la especificación. La raíz unitaria corresponde a $\gamma = 0$ y la alterna estacionaria a $\gamma < 0$.
+
+**Rezagos.** El número de rezagos $p$ se elige con el criterio de Schwarz (BIC) entre $p = 0, \dots, p_{\max}$, con $p_{\max} = \lfloor 12\,(n/100)^{1/4}\rfloor$ (regla de Schwert, 1989): `r R1$df[[1]]$pmax` en la serie 1, `r R2$df[[1]]$pmax` en la serie 2 y `r R3$df[[1]]$pmax` en la serie 3. Todos los $p$ se comparan sobre la misma muestra, la que permite $p_{\max}$ rezagos, y la prueba se estima después con el $p$ elegido sobre la muestra más larga posible. El BIC penaliza más que el AIC; los rezagos solo se agregan para que $e_t$ quede sin autocorrelación, y con $p$ de más la prueba pierde potencia.
+
+**Valores críticos.** Bajo $H_0$, $\hat\tau$ no sigue una $t$ de Student. Su distribución depende de la especificación determinista, y los valores críticos salen de la tabla de Fuller (1976, tabla 8.5.2), reproducida en Hamilton (1994, tabla B.6), para el tamaño de muestra efectivo. Son los que entrega `urca::ur.df()`. El valor p es la aproximación de MacKinnon (1996), calculada con `urca::punitroot()`.
+
+**Especificación determinista.** Se justifica con los gráficos en el tiempo de $g$, $\nabla g$ y $\nabla^2 g$:
+
+```{r s4b-dif1, fig.width = 8, fig.height = 7, fig.cap = "Serie 1: Z, ∇Z y ∇²Z en el tiempo."}
+graficar_diferencias(R1$datos$fecha, R1$g, R1$meta, "Z", "Mt")
+```
+
+```{r s4b-dif2, fig.width = 8, fig.height = 7, fig.cap = "Serie 2: ln Z, ∇ln Z y ∇²ln Z en el tiempo."}
+graficar_diferencias(R2$datos$fecha, R2$g, R2$meta, "ln Z", "ln(COP)")
+```
+
+```{r s4b-dif3, fig.width = 8, fig.height = 7, fig.cap = "Serie 3: Z, ∇Z y ∇²Z en el tiempo."}
+graficar_diferencias(R3$datos$fecha, R3$g, R3$meta, "Z", "USD/t")
+```
+
+- $g(Z_t)$, en las tres series, crece a lo largo de toda la muestra. Bajo la alterna, la serie sería estacionaria alrededor de una recta, así que la prueba se hace **con constante y tendencia**. Sin la tendencia, la prueba no tendría potencia contra esa alterna.
+- $\nabla g$ oscila alrededor de una media distinta de cero (el estéril depositado por trimestre, el rendimiento semanal medio y el aumento mensual medio del costo) y no muestra una recta, así que se usa **con constante**.
+- $\nabla^2 Z_t$ de la serie 1 oscila alrededor de cero, así que se usa **sin constante**.
+
+**Estrategia secuencial.** Se prueba primero sobre $g$, después sobre $\nabla g$ y, si hace falta, sobre $\nabla^2 g$. La secuencia se detiene en la primera serie en la que se rechaza la raíz unitaria.
+
+```{r s4b-tabla}
+dt <- do.call(rbind, lapply(resultados, function(r) cbind(Serie = r$meta$serie, r$df_tabla)))
+dt$Serie_dif <- c("g", "∇g", "∇²g")[dt$d + 1]
+dt$especificacion <- c(none = "sin constante", drift = "constante", trend = "constante y tendencia")[dt$especificacion]
+out <- data.frame(Serie = dt$Serie, Prueba_sobre = dt$Serie_dif, Especificacion = dt$especificacion,
+                  p = dt$rezagos, n_ef = dt$n_ef, gamma = f2(dt$gamma, 4), tau = f3(dt$tau),
+                  VC_5 = f2(dt$cv5), Valor_p = fp(dt$valor_p), Decision = dt$decision)
+names(out) <- c("Serie", "Sobre", "Especificación", "p", "n ef.", "γ̂", "τ̂", "VC 5 %", "Valor p", "Decisión")
+tabla(out, caption = "Pruebas de Dickey y Fuller aumentadas en estrategia secuencial (rezagos por BIC).")
+```
+
+A continuación van las pruebas con sus seis elementos.
+
+### Serie 1
+
+```{r s4b-texto1, results = "asis"}
+nom1 <- c("$Z_t$", "$\\nabla Z_t$", "$\\nabla^2 Z_t$")
+for (a in R1$df) cat(texto_df(a, nom1[a$d + 1]), "\n")
+```
+
+### Serie 2
+
+```{r s4b-texto2, results = "asis"}
+nom2 <- c("$\\ln Z_t$", "$\\nabla \\ln Z_t$", "$\\nabla^2 \\ln Z_t$")
+for (a in R2$df) cat(texto_df(a, nom2[a$d + 1]), "\n")
+```
+
+### Serie 3
+
+```{r s4b-texto3, results = "asis"}
+nom3 <- c("$Z_t$", "$\\nabla Z_t$", "$\\nabla^2 Z_t$")
+for (a in R3$df) cat(texto_df(a, nom3[a$d + 1]), "\n")
+```
+
+**Sensibilidad.** La tabla siguiente repite cada prueba con las tres especificaciones y con AIC en lugar de BIC. Ninguna combinación cambia la decisión de la estrategia secuencial. En las tres series, $g$ no rechaza la raíz unitaria con ninguna especificación. En la serie 1, $\nabla Z_t$ tampoco la rechaza, y $\nabla^2 Z_t$ la rechaza con todas.
+
+```{r s4b-sens}
+ss <- do.call(rbind, lapply(resultados, function(r) cbind(Serie = r$meta$serie, r$df_sens)))
+ss <- ss[ss$d <= max(sapply(resultados, `[[`, "d")), ]
+ss$d <- c("g", "∇g", "∇²g")[ss$d + 1]
+ss$especificacion <- c(none = "sin constante", drift = "constante", trend = "constante y tendencia")[ss$especificacion]
+w <- reshape(ss[, c("Serie", "d", "especificacion", "criterio", "tau", "cv5", "rezagos")],
+             idvar = c("Serie", "d", "especificacion"), timevar = "criterio", direction = "wide")
+w <- data.frame(Serie = w$Serie, Sobre = w$d, Especificación = w$especificacion,
+                `τ̂ (BIC)` = paste0(f2(w$tau.BIC), " (p=", w$rezagos.BIC, ")"),
+                `τ̂ (AIC)` = paste0(f2(w$tau.AIC), " (p=", w$rezagos.AIC, ")"),
+                `VC 5 %` = f2(w$cv5.BIC), check.names = FALSE)
+tabla(w, caption = "Sensibilidad de τ̂ a la especificación y al criterio de rezagos.", row.names = FALSE)
+```
+
+**Verificación de la implementación propia.** Con la misma especificación y los mismos rezagos, `urca::ur.df(y, type, lags = p, selectlags = "Fixed")` usa la misma muestra ($t = p+2, \dots, n$) y da el mismo $\hat\gamma$ y el mismo $\hat\tau$:
+
+```{r s4b-verif}
+vv <- do.call(rbind, lapply(resultados, function(r) cbind(Serie = r$meta$serie, Sobre = c("g", "∇g", "∇²g")[sapply(r$df, `[[`, "d") + 1], r$df_verif)))
+vv <- data.frame(Serie = vv$Serie, Sobre = vv$Sobre, Tipo = vv$tipo, p = vv$rezagos,
+                 `τ̂ propio` = formatC(vv$tau_propio, format = "f", digits = 6, decimal.mark = ","),
+                 `τ̂ ur.df()` = formatC(vv$tau_urca, format = "f", digits = 6, decimal.mark = ","),
+                 Diferencia = formatC(vv$diferencia_tau, format = "e", digits = 1), check.names = FALSE)
+tabla(vv, caption = "ADF propia contra urca::ur.df() con la misma especificación y los mismos rezagos.", row.names = FALSE)
+```
+
+La selección automática de `ur.df(selectlags = "BIC")` no se usa para decidir, por dos razones. Nunca considera $p = 0$, porque su bucle de selección empieza en un rezago. Además, después de elegir, reestima sobre la muestra común y no sobre la más larga. La función propia evita las dos cosas.
+
+## Número de diferencias
+
+```{r s4c-tabla}
+dec <- data.frame(Serie = 1:3, g = c("Z_t", "ln Z_t", "Z_t"),
+                  d = sapply(resultados, `[[`, "d"),
+                  W = sapply(resultados, `[[`, "etiqueta_w"),
+                  Evidencia = c("ADF no rechaza en Z ni en ∇Z, rechaza en ∇²Z; varianza mínima en d = 2; ACF de ∇Z no estacionaria",
+                                "ADF no rechaza en ln Z, rechaza en ∇ln Z; varianza mínima en d = 1; ∇²ln Z con r₁ ≈ −0,46",
+                                "ADF no rechaza en Z, rechaza en ∇Z; varianza mínima en d = 1; ∇²Z con r₁ < 0 y más varianza"))
+names(dec) <- c("Serie", "g(Z_t)", "d", "W_t", "Evidencia")
+tabla(dec, caption = "Decisión sobre el número de diferencias.")
+```
+
+**Serie 1: d = 2.** El estéril acumulado es integrado de orden 2. Eso quiere decir que el estéril que se deposita cada trimestre, $\nabla Z_t$, es él mismo no estacionario: el ritmo de depósito pasó de 1,4–1,5 Mt por trimestre al principio a menos de 0,5 en 2018 y volvió a subir cerca de 1. Lo estacionario es el cambio de ese ritmo de un trimestre al siguiente.
+
+**Series 2 y 3: d = 1.** El logaritmo del precio y el costo por tonelada son integrados de orden 1. Lo estacionario es el rendimiento semanal en la serie 2 y el cambio mensual del costo en la serie 3.
+
+**¿Recta o tendencia estocástica?** En ninguna serie la evidencia indica estacionariedad alrededor de una recta: la prueba con constante y tendencia sobre $g$ no rechaza la raíz unitaria (valores p de `r fp(R1$df[[1]]$valor_p)`, `r fp(R2$df[[1]]$valor_p)` y `r fp(R3$df[[1]]$valor_p)`). Aun así, conviene dejar claro qué habría cambiado con la otra opción:
+
+- **Quitar la recta.** Si una serie fuera estacionaria alrededor de una recta, $g(Z_t) = \beta_0 + \beta_1 t + W_t$, la recta se quitaría estimando $\beta_0$ y $\beta_1$ por regresión de $g(Z_t)$ sobre $t$, o mejor, conjuntamente con el ARMA de $W_t$ (`tendencia = TRUE` en `ajustar_modelo()`). El residuo $W_t$ se modelaría como ARMA estacionario.
+- **Diferenciar en su lugar.** Si se diferenciara una serie así, $\nabla g(Z_t) = \beta_1 + (1-B)W_t$, se introduciría una raíz unitaria en la parte MA. Esa serie sobrediferenciada no es invertible, su ACF tiene un $r_1$ cercano a $-0{,}5$ y su varianza sube. Es lo que muestran las filas ∇²ln Z de la serie 2 y ∇²Z de la serie 3 en la tabla de varianzas.
+- **Efecto de un choque.** Con la recta, un choque se disipa y la serie vuelve a la tendencia determinista: el efecto es transitorio y los intervalos de pronóstico tienen ancho acotado. Con la raíz unitaria, el choque desplaza el nivel de forma permanente y la incertidumbre del pronóstico crece con el horizonte.
+
+En la unidad de cada problema, esto se lee así:
+
+- **Serie 1.** Un trimestre con un depósito inusual cambia de forma permanente tanto el inventario como el ritmo de depósito, porque d = 2. La fecha de llenado de la escombrera se mueve con cada choque.
+- **Serie 2.** Una caída del precio no se recupera por sí sola, lo cual es coherente con un mercado en el que los precios no tienen un nivel al que regresen.
+- **Serie 3.** Un aumento del costo, por ejemplo del combustible, se queda: para fijar la ley de corte, el último costo observado pesa mucho más que la tendencia histórica.
+
+## La constante θ₀
+
+Cuando se diferencia, el modelo es $\phi(B)W_t = \theta_0 + \theta(B)a_t$ con $W_t = \nabla^d g(Z_t)$. Como $E(W_t) = \mu_W = \theta_0/\phi(1)$, la constante es cero si y solo si $\mu_W = 0$. Se prueba entonces $H_0:\mu_W = 0$ con la media muestral $\bar W$.
+
+Su error estándar no es $\sqrt{\hat\gamma_0/n}$, porque las $W_t$ están autocorrelacionadas. Se usa la regla del curso,
+$$S_{\bar W} = \sqrt{\frac{\hat\gamma_0}{n}\left(1 + 2r_1 + 2r_2 + \dots + 2r_K\right)},$$
+donde $K$ es el último rezago en que la ACF de $W_t$ es distinta de cero. $K$ se toma como el último de los primeros seis rezagos que sale de las bandas de Bartlett (`elegir_K()`): K = `r R1$K_sw` en la serie 1, `r R2$K_sw` en la serie 2 y `r R3$K_sw` en la serie 3.
+
+**Serie 1** ($W_t = \nabla^2 Z_t$):
+
+```{r s4d-1, results = "asis"}
+cat(texto_sw(R1$sw, "\\nabla^2 Z_t", "el cambio medio del ritmo de depósito de un trimestre al siguiente (en Mt por trimestre, por trimestre)"))
+```
+
+$\theta_0 = 0$: el ritmo de depósito no tiene una aceleración determinista. Una constante en un modelo con d = 2 equivaldría a una tendencia cuadrática en el inventario, que la evidencia no respalda.
+
+**Serie 2** ($W_t = \nabla \ln Z_t$):
+
+```{r s4d-2, results = "asis"}
+cat(texto_sw(R2$sw, "\\nabla \\ln Z_t", "el rendimiento logarítmico medio por semana"))
+```
+
+$\bar W$ = `r formatC(R2$sw$media, format = "f", digits = 5, decimal.mark = ",")` significa que el precio creció en promedio un `r f2(100 * R2$sw$media)` % por semana entre 2022 y 2026, equivalente a un factor de `r f2(exp(52 * R2$sw$media))` por año ($e^{52\bar W}$). Si el modelo final es una caminata aleatoria con deriva, $\theta_0 = \mu_W$ es directamente esa deriva semanal.
+
+**Serie 3** ($W_t = \nabla Z_t$):
+
+```{r s4d-3, results = "asis"}
+cat(texto_sw(R3$sw, "\\nabla Z_t", "el aumento medio del costo por mes, en USD/t por mes"))
+```
+
+El costo directo sube en promedio `r f3(R3$sw$media)` USD/t por mes, cerca de `r f2(12 * R3$sw$media)` USD/t por año. Un pronóstico que ignorara esa deriva subestimaría el costo del mes siguiente en unos `r f3(R3$sw$media)` USD/t, y por la regla del contexto eso equivale a cerca de `r f2(1.1 * R3$sw$media)` millones de dólares de mineral mal clasificado en el mes.
+
+**Sensibilidad a K.** La decisión no cambia con ningún $K$ entre 0 y 6 en ninguna de las tres series:
+
+```{r s4d-sens}
+sw <- do.call(rbind, lapply(resultados, function(r) cbind(Serie = r$meta$serie, r$sw_sens)))
+sw <- data.frame(Serie = sw$Serie, K = sw$K, Factor = f3(sw$factor),
+                 S_W = formatC(sw$S_W, format = "g", digits = 4, decimal.mark = ","),
+                 t = f3(sw$t), Decision = ifelse(sw$rechaza, "con constante", "sin constante"))
+names(sw)[6] <- "Decisión al 5 %"
+w2 <- reshape(sw[, c("Serie", "K", "t")], idvar = "Serie", timevar = "K", direction = "wide")
+names(w2) <- c("Serie", paste0("t (K=", 0:6, ")"))
+w2$Decisión <- c(ifelse(R1$constante, "con constante", "sin constante"),
+                 ifelse(R2$constante, "con constante", "sin constante"),
+                 ifelse(R3$constante, "con constante", "sin constante"))
+tabla(w2, caption = sprintf("Estadístico t de la media de W_t según K; valores críticos %s, %s y %s.",
+                            f3(R1$sw$cv), f3(R2$sw$cv), f3(R3$sw$cv)), row.names = FALSE)
+```
 
 # Identificación
 
-*Pendiente: Persona 2.*
+Sea $W_t$ la serie estacionaria que resulta de las secciones 3 y 4: $W_t = \nabla^2 Z_t$ en la serie 1 (n = `r length(R1$W)`), $\nabla \ln Z_t$ en la serie 2 (n = `r length(R2$W)`) y $\nabla Z_t$ en la serie 3 (n = `r length(R3$W)`). El código está en `R/03-identificacion.R`.
+
+## ACF, PACF y EACF de W_t
+
+**Rezago máximo.** Se usa $m = \min(\lfloor n/4 \rfloor, 24)$: m = `r R1$m`, `r R2$m` y `r R3$m`. Box y Jenkins recomiendan no pasar de $n/4$, porque con más rezagos cada $r_k$ se calcula con muy pocos pares. El tope de 24 cubre seis años en la serie trimestral, dos años en la mensual y casi medio año en la semanal, y basta para ver estructuras de bajo orden. Las series no tienen componente estacional, de modo que no hace falta llegar a rezagos estacionales.
+
+**Bandas.** Cada pregunta tiene sus propias bandas del 95 %:
+
+- **¿Es $W_t$ ruido blanco?** Bajo esa hipótesis $r_k \approx N(0, 1/n)$, así que la banda es $\pm 1{,}96/\sqrt n$ (rojo, guion).
+- **¿Se corta la ACF después de $q$, es decir, es MA(q)?** Bajo MA($k-1$), la varianza de $r_k$ es la de Bartlett, $(1 + 2\sum_{j<k} r_j^2)/n$, y la banda crece con $k$ (azul, punteado).
+- **¿Se corta la PACF después de $p$, es decir, es AR(p)?** Bajo AR(p), $\hat\phi_{kk} \approx N(0, 1/n)$ para $k > p$, así que la banda es $\pm 1{,}96/\sqrt n$.
+
+**EACF.** La tabla EACF (Tsay y Tiao, 1984) se calcula con una implementación propia en R base, `eacf_propia()`, con AR hasta 7 y MA hasta 13. Para cada orden AR $k$, la $j$-ésima regresión iterada da coeficientes AR con los que se forma el residuo extendido $z_t - \sum_i \hat\phi^{(j)}_{k,i} z_{t-i}$. Si el proceso es ARMA(p, q) y $k \ge p$, ese residuo se comporta como un MA(q). Los coeficientes de cada iteración se obtienen de los de la anterior con la recursión de Tsay y Tiao, a partir de los AR(k) por mínimos cuadrados. La celda se marca **x** si la autocorrelación del residuo extendido supera $2/\sqrt{n-k-q-1}$. Un ARMA(p, q) deja un triángulo de **o** con vértice en (p, q).
+
+```{r s5a-verif}
+ve <- data.frame(Serie = 1:3,
+                 `Máx. diferencia en valores` = sapply(resultados, function(r) formatC(r$eacf_verif$max_dif_valores, format = "e", digits = 1)),
+                 `Símbolos iguales` = sapply(resultados, function(r) ifelse(r$eacf_verif$simbolos_iguales, "sí", "no")),
+                 check.names = FALSE)
+tabla(ve, caption = "Verificación de la EACF propia contra TSA::eacf(W, ar.max = 7, ma.max = 13).", row.names = FALSE)
+```
+
+```{r s5-eacf-fun}
+mostrar_eacf <- function(r) {
+  s <- r$eacf$simbolo
+  df <- data.frame(`AR \\ MA` = rownames(s), unclass(s), check.names = FALSE)
+  names(df)[-1] <- colnames(s)
+  tabla(df, caption = sprintf("Serie %d: tabla EACF de %s (x: |valor| > 2/√(n−k−q−1)).", r$meta$serie, r$etiqueta_w),
+        row.names = FALSE, align = "c")
+}
+```
+
+### Serie 1: W = ∇²Z
+
+```{r s5a-1, fig.width = 10, fig.height = 4.2, fig.cap = sprintf("Serie 1: ACF y PACF de ∇²Z, n = %d, m = %d.", length(R1$W), R1$m)}
+graficar_acf_pacf(R1$W, R1$m, R1$meta, R1$etiqueta_w)
+```
+
+```{r s5a-1e}
+mostrar_eacf(R1)
+```
+
+- **ACF.** $r_1$ = `r f3(R1$fm$r[1])` sale de las dos bandas. Después, todos los $r_k$ quedan dentro de las bandas de Bartlett; $r_6$ = `r f3(R1$fm$r[6])` toca la banda de ruido blanco (`r f3(R1$fm$banda_rb[1])`), pero no la de Bartlett. La ACF se corta después del rezago 1, lo que corresponde a un MA(1).
+- **PACF.** $\hat\phi_{11}$ = `r f3(R1$fm$phi_kk[1])` sale de la banda y el resto queda dentro ($\hat\phi_{66}$ = `r f3(R1$fm$phi_kk[6])` y $\hat\phi_{88}$ = `r f3(R1$fm$phi_kk[8])` quedan al borde). La PACF también se corta después de 1, lo que corresponde a un AR(1).
+- **Por qué no se distinguen.** Con $\rho_1 \approx 0{,}38$, un MA(1) tendría $\phi_{22} = -\rho_1^2/(1-\rho_1^2) \approx -0{,}17$, y un AR(1) tendría $\rho_2 = \phi^2 \approx 0{,}15$. Ambos valores están por debajo de la banda (≈ 0,20 con n = 94), así que la muestra no puede separar las dos formas.
+- **EACF.** La fila 0 tiene **o** en MA 1 a 4, con una **x** aislada en MA 5 (el $r_6$ de la ACF). La fila 2 es toda **o** desde MA 0, y el triángulo de **o** más limpio arranca en (1, 1) y (2, 0).
+
+### Serie 2: W = ∇ln Z
+
+```{r s5a-2, fig.width = 10, fig.height = 4.2, fig.cap = sprintf("Serie 2: ACF y PACF de ∇ln Z, n = %d, m = %d.", length(R2$W), R2$m)}
+graficar_acf_pacf(R2$W, R2$m, R2$meta, R2$etiqueta_w)
+```
+
+```{r s5a-2e}
+mostrar_eacf(R2)
+```
+
+- **ACF y PACF.** Ningún valor de los primeros diez rezagos sale de las bandas ($r_1$ = `r f3(R2$fm$r[1])`, $\hat\phi_{11}$ = `r f3(R2$fm$phi_kk[1])`). Hay `r sum(R2$fm$fuera_acf_rb)` de `r R2$m` autocorrelaciones fuera de la banda de ruido blanco (rezagos `r paste(R2$fm$k[R2$fm$fuera_acf_rb], collapse = " y ")`), apenas al borde. Es lo que se espera por azar: con 24 rezagos y bandas del 95 %, se espera que salga una o dos aunque la serie sea ruido blanco. Además, los rezagos 11 y 22 semanas no tienen ninguna lectura en el contexto.
+- **EACF.** La fila 0 es toda **o**, de modo que el vértice está en (0, 0).
+- **Lectura.** El rendimiento semanal se comporta como ruido blanco: $\ln Z_t$ es una caminata aleatoria con deriva.
+
+### Serie 3: W = ∇Z
+
+```{r s5a-3, fig.width = 10, fig.height = 4.2, fig.cap = sprintf("Serie 3: ACF y PACF de ∇Z, n = %d, m = %d.", length(R3$W), R3$m)}
+graficar_acf_pacf(R3$W, R3$m, R3$meta, R3$etiqueta_w)
+```
+
+```{r s5a-3e}
+mostrar_eacf(R3)
+```
+
+- **ACF.** $r_1$ = `r f3(R3$fm$r[1])` queda dentro. $r_2$ = `r f3(R3$fm$r[2])` y $r_3$ = `r f3(R3$fm$r[3])` salen de las bandas de Bartlett (`r f3(R3$fm$banda_bartlett[2])` y `r f3(R3$fm$banda_bartlett[3])`). $r_4$ = `r f3(R3$fm$r[4])` toca la banda de ruido blanco pero queda dentro de la de Bartlett (`r f3(R3$fm$banda_bartlett[4])`), y de ahí en adelante todo queda dentro, salvo $r_{13}$ al borde. La ACF se corta después del rezago 3, lo que corresponde a un MA(3).
+- **PACF.** $\hat\phi_{22}$ = `r f3(R3$fm$phi_kk[2])` y $\hat\phi_{33}$ = `r f3(R3$fm$phi_kk[3])` salen de la banda, y $\hat\phi_{44}$ = `r f3(R3$fm$phi_kk[4])` ya es prácticamente cero. La PACF se corta después de 3, lo que corresponde a un AR(3).
+- **EACF.** La fila 0 tiene **x** en MA 1 y 2, y desde MA 3 es **o** (con una **x** aislada en MA 12). El vértice más claro está en (0, 3). La fila 3 tiene **o** en MA 0 y 1, pero una **x** en MA 2, así que el triángulo del AR(3) no está limpio. Los triángulos que arrancan en (4, 1) y (2, 3) son menos parsimoniosos.
+
+## Modelos candidatos
+
+Las formas teóricas que se usan son las siguientes:
+
+- **AR(p):** la ACF decae (exponencial o sinusoidal) y la PACF se corta después de $p$; en la EACF, el vértice está en (p, 0).
+- **MA(q):** la ACF se corta después de $q$ y la PACF decae; el vértice está en (0, q).
+- **ARMA(p, q):** las dos decaen a partir de $q - p$ y $p - q$; el vértice está en (p, q).
+
+Con muestras de este tamaño, "decae" y "se corta" se confunden cuando los valores siguientes son menores que las bandas. Por eso se lleva más de un candidato y el AIC, el SBC y la validación de las secciones 6 y 7 deciden.
+
+```{r s5b-tabla}
+cand <- data.frame(
+  Serie = c(1, 1, 1, 2, 2, 2, 3, 3),
+  Candidato = c("ARIMA(0,2,1) sin constante", "ARIMA(1,2,0) sin constante", "ARIMA(1,2,1) sin constante",
+                "ARIMA(0,1,0) con constante", "ARIMA(1,1,0) con constante", "ARIMA(0,1,1) con constante",
+                "ARIMA(0,1,3) con constante", "ARIMA(3,1,0) con constante"),
+  Papel = c("principal", "principal", "contraste", "principal", "contraste", "contraste", "principal", "principal"),
+  Evidencia = c("ACF se corta tras 1 (Bartlett); EACF fila 0 con o desde MA 1",
+                "PACF se corta tras 1; EACF fila 2 limpia desde MA 0",
+                "vértice (1, 1) de la EACF; mixto más simple",
+                "ACF y PACF sin valores fuera de banda; vértice (0, 0)",
+                "por si r₁ = 0,03 esconde dependencia; también sirve de sobreajuste",
+                "ídem, por el lado MA",
+                "ACF se corta tras 3 (Bartlett); vértice (0, 3) de la EACF",
+                "PACF se corta tras 3"))
+tabla(cand, caption = "Modelos candidatos de cada serie para la sección 6 (en la notación ARIMA(p, d, q) de g(Z_t)).", row.names = FALSE)
+```
+
+**Serie 1.** Se llevan **ARIMA(0,2,1)** y **ARIMA(1,2,0)**, sin constante. Las dos formas son compatibles con lo observado: un único valor importante en la ACF y en la PACF, y nada más fuera de las bandas que corresponden. Se agrega **ARIMA(1,2,1)** porque la EACF marca (1, 1). Se descartan:
+
+- **Órdenes de 2 o más:** $r_2$ y $\hat\phi_{22}$ son pequeños.
+- **Términos en el rezago 6:** $r_6$ y $\hat\phi_{66}$ están solos y al borde, sin ninguna lectura física. No hay estacionalidad y seis trimestres no son un ciclo del plan de minado.
+- **Constante:** la sección 4.4 no la respalda.
+
+**Serie 2.** El candidato principal es **ARIMA(0,1,0) con constante**, la caminata aleatoria con deriva para $\ln Z_t$, que reúne las tres piezas: ACF, PACF y vértice (0, 0). Como la sección pide más de un candidato, se llevan también **ARIMA(1,1,0)** y **ARIMA(0,1,1)** con constante. Sirven para verificar que el término adicional no es significativo y anticipan el sobreajuste de la sección 7. Los valores al borde en los rezagos 11 y 22 no justifican un término en esos rezagos, por la razón dicha arriba.
+
+**Serie 3.** Se llevan **ARIMA(0,1,3)** (ACF que se corta tras 3, con vértice (0, 3) en la EACF) y **ARIMA(3,1,0)** (PACF que se corta tras 3), ambos con constante. La EACF favorece el MA(3), porque el triángulo del AR(3) tiene una **x** en (3, 2). En el MA(3) se espera $\hat\theta_1$ pequeño, porque $r_1$ lo es; aun así se estima completo, porque el curso no usa modelos con coeficientes restringidos a cero. Se descartan:
+
+- **Órdenes de 1 o 2:** dejarían fuera $r_3$ y $\hat\phi_{33}$, que son claramente distintos de cero.
+- **Mixtos (2, 3) y (4, 1):** tienen cinco coeficientes, frente a tres de los principales, y ninguna pieza los pide antes que a los candidatos simples.
 
 # Estimación y selección
 
